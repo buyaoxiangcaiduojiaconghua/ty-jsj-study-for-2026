@@ -5,11 +5,11 @@
       "cron": "57 23 * * *",
       "prompt": "更新计算机基础学习项目的学习进度并自动推送到 GitHub：\n\n1. 读取 /Users/admin/workspace/学习/计算机基础学习/学习进度.md，查看今天的日期有没有记录\n2. 如果有新的学习记录（今天学了什么），更新进度表\n3. 检查目录.md 中是否有新勾选的知识点 `[x]`\n4. 执行 git add -A && git commit -m \"chore: 自动同步学习进度 - $(date +%Y-%m-%d)\" && git push origin main\n5. 如果今天没有任何变化，就跳过，不提交空 commit\n\n注意：推送前先 git pull --rebase 避免冲突。",
       "createdAt": 1785306729699,
+      "lastFiredAt": 1785428820127,
       "recurring": true,
       "createdBySessionId": "acb28004-8df7-4156-af1a-e83f4fe376b4",
       "createdByPid": 12132,
-      "createdByProcStart": "Tue Jul 28 09:06:29 2026",
-      "lastFiredAt": 1785342420142
+      "createdByProcStart": "Tue Jul 28 09:06:29 2026"
     }
   ]
 }

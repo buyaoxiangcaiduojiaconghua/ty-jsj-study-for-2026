@@ -1,0 +1,15 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - button "数据结构" [ref=e3] [cursor=pointer]
+    - button "数据库" [ref=e4] [cursor=pointer]
+    - button "计算机网络" [ref=e5] [cursor=pointer]
+    - button "操作系统" [ref=e6] [cursor=pointer]
+    - button "组成原理" [ref=e7] [cursor=pointer]
+    - button "软件工程" [ref=e8] [cursor=pointer]
+    - button "信息新技术" [ref=e9] [cursor=pointer]
+    - button "公共知识" [ref=e10] [cursor=pointer]
+  - generic [ref=e11]:
+    - navigation [ref=e12]:
+      - heading "📑 目录" [level=3] [ref=e13]
+    - generic [ref=e14]: 加载中...
+  - generic [ref=e17]: 自动更新中
