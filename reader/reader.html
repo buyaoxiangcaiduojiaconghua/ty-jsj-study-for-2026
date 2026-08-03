@@ -117,6 +117,37 @@ body {
   border-left-color: var(--toc-active);
   font-weight: 500;
 }
+/* 手风琴目录 */
+.toc-parent {
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 16px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--text);
+  transition: all 0.1s;
+}
+.toc-parent:hover { background: #f8fafc; }
+.toc-parent.expanded { color: var(--toc-active); border-left-color: var(--toc-active); }
+.toc-parent .arrow { font-size: 10px; transition: transform 0.2s; }
+.toc-parent.expanded .arrow { transform: rotate(90deg); }
+.toc-children { display: none; }
+.toc-children.expanded { display: block; }
+.toc-children a {
+  padding-left: 32px;
+  font-size: 12px;
+  color: var(--text-light);
+  border-left: 3px solid transparent;
+}
+.toc-children a.active {
+  color: var(--toc-active);
+  background: var(--toc-active-bg);
+  border-left-color: var(--toc-active);
+  font-weight: 500;
+}
 #toggle-sidebar {
   display: none;
   position: fixed;
@@ -447,33 +478,64 @@ function renderContent(mdText, moduleName) {
   document.getElementById("content").scrollTop = 0;
 }
 
-// ==================== 目录生成 ====================
+// ==================== 目录生成（手风琴式） ====================
 function buildTOC(mdText) {
   const lines = mdText.split("\n");
-  const tocItems = [];
+  const sections = [];
 
-  for (const line of lines) {
-    const m = line.match(/^## (.+)/);
-    if (!m) continue;
-    const title = m[1].trim();
-    if (title === "目录") continue;
-    // 使用与 marked 自定义 renderer 相同的 id 生成函数
-    const id = makeHeadingId(title);
-    tocItems.push({ title, id });
+  let currentSection = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const h2m = line.match(/^## (.+)/);
+    const h3m = line.match(/^### (.+)/);
+    if (h2m) {
+      const title = h2m[1].trim();
+      if (title === "目录") continue;
+      currentSection = { h2: { title, id: makeHeadingId(title) }, children: [] };
+      sections.push(currentSection);
+    } else if (h3m && currentSection) {
+      const title = h3m[1].trim();
+      currentSection.children.push({ title, id: makeHeadingId(title) });
+    }
   }
 
   const container = document.getElementById("toc-list");
-  if (tocItems.length === 0) {
+  if (sections.length === 0) {
     container.innerHTML = '<a style="color:#aaa">暂无目录</a>';
     return;
   }
 
-  container.innerHTML = tocItems.map(item =>
-    `<a href="#${item.id}" data-id="${item.id}">${item.title}</a>`
-  ).join("");
+  container.innerHTML = sections.map((sec, si) => {
+    const hasChildren = sec.children.length > 0;
+    return `
+      <div class="toc-parent" data-section="${si}">
+        <span>${sec.h2.title}</span>
+        ${hasChildren ? '<span class="arrow">▶</span>' : ''}
+      </div>
+      <div class="toc-children">
+        ${sec.children.map(c => `<a href="#${c.id}" data-id="${c.id}">${c.title}</a>`).join("")}
+      </div>
+    `;
+  }).join("");
 
-  // 点击目录项平滑滚动到对应标题
-  container.querySelectorAll("a").forEach(a => {
+  // 点击父级切换展开/折叠
+  container.querySelectorAll(".toc-parent").forEach(parent => {
+    parent.addEventListener("click", function() {
+      const si = parseInt(this.dataset.section);
+      const children = container.querySelectorAll(".toc-children")[si];
+      const isExpanded = this.classList.contains("expanded");
+      if (isExpanded) {
+        this.classList.remove("expanded");
+        children.classList.remove("expanded");
+      } else {
+        this.classList.add("expanded");
+        children.classList.add("expanded");
+      }
+    });
+  });
+
+  // 点击子级平滑滚动
+  container.querySelectorAll(".toc-children a").forEach(a => {
     a.addEventListener("click", function(e) {
       const targetId = this.getAttribute("data-id");
       const el = document.getElementById(targetId);
@@ -485,45 +547,34 @@ function buildTOC(mdText) {
   });
 }
 
-function scrollToHeading(e, id) {
-  // 先用 smooth scroll
-  const el = document.getElementById(id);
-  if (el) {
-    e.preventDefault();
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  // 如果找不到元素，让浏览器默认锚点行为处理
-}
-
-function toggleSidebar() {
-  document.getElementById("sidebar").classList.toggle("open");
-}
-
-// ==================== 滚动监听（高亮当前目录） ====================
+// ==================== 滚动监听（自动展开当前章节） ====================
 let observer = null;
 function observeScroll() {
   if (observer) observer.disconnect();
 
-  const headings = document.querySelectorAll("#content-inner h2");
-  if (headings.length === 0) return;
+  const h2s = document.querySelectorAll("#content-inner h2");
+  if (h2s.length === 0) return;
+
+  const parents = document.querySelectorAll(".toc-parent");
+  const childrens = document.querySelectorAll(".toc-children");
 
   observer = new IntersectionObserver((entries) => {
-    // 找到第一个部分可见的标题
-    let activeId = null;
+    let activeIdx = -1;
     for (const entry of entries) {
       if (entry.isIntersecting) {
-        activeId = entry.target.id;
+        activeIdx = Array.from(h2s).indexOf(entry.target);
         break;
       }
     }
-    if (activeId) {
-      document.querySelectorAll("#toc-list a").forEach(a => {
-        a.classList.toggle("active", a.dataset.id === activeId);
-      });
-    }
+    if (activeIdx < 0) return;
+
+    parents.forEach((p, i) => {
+      p.classList.toggle("expanded", i === activeIdx);
+      childrens[i].classList.toggle("expanded", i === activeIdx);
+    });
   }, { rootMargin: "-40px 0px -60% 0px" });
 
-  headings.forEach(h => observer.observe(h));
+  h2s.forEach(h => observer.observe(h));
 }
 
 // ==================== 自动更新 ====================
