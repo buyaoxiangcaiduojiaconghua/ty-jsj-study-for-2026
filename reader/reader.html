@@ -249,6 +249,44 @@ body {
 
 /* ========== loading ========== */
 .loading { display: flex; justify-content: center; align-items: center; height: 200px; color: var(--text-light); font-size: 14px; }
+
+/* ========== 刷题模式 ========== */
+#quiz-panel { display: none; padding: 16px; }
+#quiz-panel.visible { display: block; }
+#quiz-score { text-align: center; padding: 12px; font-size: 16px; font-weight: 600; background: #f0f7ff; border-radius: var(--radius); margin-bottom: 16px; }
+.quiz-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.quiz-card h4 { font-size: 15px; margin: 0 0 12px; line-height: 1.7; }
+.quiz-card .option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  margin: 4px 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fafbfc;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.12s;
+  font-family: inherit;
+}
+.quiz-card .option:hover { background: #eff6ff; border-color: var(--tab-active); }
+.quiz-card .option.correct { background: #dcfce7; border-color: #22c55e; color: #166534; }
+.quiz-card .option.wrong { background: #fee2e2; border-color: #ef4444; color: #991b1b; }
+.quiz-card .option.show-correct { background: #dcfce7; border-color: #22c55e; }
+.quiz-card .explanation { display: none; margin-top: 10px; padding: 10px 14px; background: #fefce8; border-radius: 4px; font-size: 13px; line-height: 1.7; border-left: 3px solid #eab308; }
+.quiz-card .explanation.visible { display: block; }
+.quiz-card.answered .option { pointer-events: none; }
+#quiz-reset { display: block; margin: 16px auto; padding: 10px 24px; background: var(--tab-active); color: #fff; border: none; border-radius: var(--radius); cursor: pointer; font-size: 14px; font-family: inherit; }
+#quiz-reset:hover { opacity: 0.9; }
+.quiz-empty { text-align: center; color: var(--text-light); padding: 40px; }
 </style>
 </head>
 <body>
@@ -271,6 +309,12 @@ body {
     <div id="content-inner">
       <div class="loading">加载中...</div>
     </div>
+    <!-- 刷题面板 -->
+    <div id="quiz-panel">
+      <div id="quiz-score"></div>
+      <div id="quiz-body"></div>
+      <button id="quiz-reset" onclick="resetQuiz()">🔄 重新做题</button>
+    </div>
   </div>
 </div>
 
@@ -278,6 +322,7 @@ body {
 <div id="status-bar">
   <span><span class="dot green"></span> 自动更新中</span>
   <span id="status-time"></span>
+  <span style="margin-left: 16px; cursor: pointer;" onclick="toggleQuizMode()" id="quiz-toggle">📝 刷题模式</span>
 </div>
 
 <script>
@@ -513,6 +558,145 @@ function updateStatusTime(mtime) {
   const dt = new Date(mtime * 1000);
   document.getElementById("status-time").textContent =
     `最后更新: ${dt.toLocaleString("zh-CN")}`;
+}
+
+// ==================== 刷题模式 ====================
+let quizMode = false;
+let quizState = { total: 0, answered: 0, correct: 0 };
+
+function toggleQuizMode() {
+  quizMode = !quizMode;
+  const toggle = document.getElementById("quiz-toggle");
+  const content = document.getElementById("content-inner");
+  const quizPanel = document.getElementById("quiz-panel");
+  const tocList = document.getElementById("toc-list");
+
+  if (quizMode) {
+    toggle.textContent = "📖 阅读模式";
+    content.style.display = "none";
+    quizPanel.classList.add("visible");
+    buildQuiz();
+  } else {
+    toggle.textContent = "📝 刷题模式";
+    content.style.display = "";
+    quizPanel.classList.remove("visible");
+  }
+}
+
+function extractQuestions(mdText) {
+  const questions = [];
+  const lines = mdText.split("\n");
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    // 匹配 **真题 N：标题** 或 **真题 N: 标题**
+    if (/^\*\*真题\s*\d+/.test(line)) {
+      const title = line.replace(/^\*\*[^*]+\*\*\s*/, '').trim();
+      let options = [];
+      let answer = '';
+      let explanation = '';
+      i++;
+
+      // 收集选项和解析，直到遇到下一个真题或分隔线
+      while (i < lines.length) {
+        const l = lines[i];
+        if (/^\*\*真题\s*\d+/.test(l) || l === '---' || /^## /.test(l)) break;
+        
+        // 选项可能在一行或多行，用 A. B. C. D. 匹配
+        // 支持全角空格（\u3000）和半角空格
+        const opts = [...l.matchAll(/([A-D])\.\s*(.+?)(?=\s*[A-D]\.\s|$)/g)];
+        if (opts) {
+          opts.forEach(o => {
+            options.push({ letter: o[1], text: o[2].trim() });
+          });
+        }
+        
+        // 解析行中的答案: **答案：A。** 或 **答案：A**
+        const ansM = l.match(/\*\*答案[：:]\s*([A-D]+)/);
+        if (ansM) {
+          answer = ansM[1];
+          explanation = l.replace(/^>\s*/, '').trim();
+        }
+        i++;
+      }
+
+      if (options.length >= 2 && answer) {
+        questions.push({ title, options, answer, explanation });
+      }
+    } else {
+      i++;
+    }
+  }
+  return questions;
+}
+function buildQuiz() {
+  const questions = extractQuestions(currentContent);
+  const body = document.getElementById("quiz-body");
+  const score = document.getElementById("quiz-score");
+
+  if (questions.length === 0) {
+    body.innerHTML = '<div class="quiz-empty">📭 当前模块未检测到真题/例题，请切换到其他模块</div>';
+    score.textContent = "";
+    return;
+  }
+
+  quizState = { total: questions.length, answered: 0, correct: 0 };
+  updateScore();
+
+  body.innerHTML = questions.map((q, qi) => `
+    <div class="quiz-card" id="q-${qi}">
+      <h4>${qi + 1}. ${q.title}</h4>
+      ${q.options.map((o, oi) => `
+        <button class="option" onclick="answerQ(${qi}, '${o.letter}', this)">${o.letter}. ${o.text}</button>
+      `).join("")}
+      <div class="explanation" id="exp-${qi}">💡 <strong>答案：${q.answer}</strong><br>${q.explanation}</div>
+    </div>
+  `).join("");
+}
+
+function answerQ(qi, letter, btn) {
+  const card = document.getElementById("q-" + qi);
+  if (card.classList.contains("answered")) return;
+  card.classList.add("answered");
+
+  const questions = extractQuestions(currentContent);
+  const q = questions[qi];
+  const correct = q.answer === letter;
+
+  if (correct) {
+    btn.classList.add("correct");
+    quizState.correct++;
+  } else {
+    btn.classList.add("wrong");
+    // 高亮正确答案
+    card.querySelectorAll(".option").forEach(o => {
+      if (o.textContent.trim().startsWith(q.answer + ".")) {
+        o.classList.add("show-correct");
+      }
+    });
+  }
+
+  quizState.answered++;
+  document.getElementById("exp-" + qi).classList.add("visible");
+  updateScore();
+}
+
+function updateScore() {
+  const score = document.getElementById("quiz-score");
+  if (quizState.answered === 0) {
+    score.innerHTML = `📝 共 ${quizState.total} 道题，点击选项开始答题`;
+  } else if (quizState.answered === quizState.total) {
+    const pct = Math.round(quizState.correct / quizState.total * 100);
+    const emoji = pct >= 90 ? "🎉" : pct >= 70 ? "👍" : pct >= 50 ? "💪" : "📚";
+    score.innerHTML = `${emoji} 完成！正确 ${quizState.correct}/${quizState.total}（${pct}%）`;
+  } else {
+    score.innerHTML = `📝 已答 ${quizState.answered}/${quizState.total}，正确 ${quizState.correct} 道`;
+  }
+}
+
+function resetQuiz() {
+  quizState = { total: 0, answered: 0, correct: 0 };
+  buildQuiz();
 }
 
 // ==================== 键盘快捷键 ====================
