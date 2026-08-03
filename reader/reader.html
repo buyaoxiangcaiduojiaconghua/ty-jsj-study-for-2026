@@ -451,6 +451,9 @@ async function switchModule(id) {
 
 // ==================== 内容渲染 ====================
 function renderContent(mdText, moduleName) {
+  // 切换模块时折叠所有目录
+  document.querySelectorAll(".toc-parent").forEach(p => p.classList.remove("expanded"));
+  document.querySelectorAll(".toc-children").forEach(c => c.classList.remove("expanded"));
   currentContent = mdText;
 
   // 1. 渲染 Markdown 到 HTML
@@ -569,8 +572,13 @@ function observeScroll() {
     if (activeIdx < 0) return;
 
     parents.forEach((p, i) => {
-      p.classList.toggle("expanded", i === activeIdx);
-      childrens[i].classList.toggle("expanded", i === activeIdx);
+      if (i === activeIdx) {
+        p.classList.add("expanded");
+        childrens[i].classList.add("expanded");
+      } else {
+        p.classList.remove("expanded");
+        childrens[i].classList.remove("expanded");
+      }
     });
   }, { rootMargin: "-40px 0px -60% 0px" });
 
