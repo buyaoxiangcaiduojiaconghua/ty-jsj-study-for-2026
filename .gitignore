@@ -17,3 +17,10 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Claude 本地配置（不公开）
+**/.claude/settings.local.json
+**/.claude/scheduled_tasks.json
+
+# Playwright MCP 调试产物
+.playwright-mcp/
