@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>央国企科技岗笔试精讲 — PDF 阅读器</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📚</text></svg>">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -74,6 +75,39 @@ body {
 #search-input:focus { outline: none; border-color: var(--accent); }
 #search-count { font-size: 12px; color: var(--text-light); white-space: nowrap; }
 
+/* 顶部标签栏（16 大部分） */
+#tab-bar {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-shrink: 0;
+  overflow-x: auto;
+  padding: 0 12px;
+  gap: 2px;
+  box-shadow: var(--shadow);
+  z-index: 9;
+  scrollbar-width: thin;
+}
+#tab-bar button {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--text-light);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+  font-family: inherit;
+}
+#tab-bar button:hover { color: var(--accent); background: #f0f4f8; }
+#tab-bar button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
 /* 主布局 */
 #main { display: flex; flex: 1; overflow: hidden; }
 
@@ -97,7 +131,10 @@ body {
   top: 0;
   background: var(--sidebar-bg);
   z-index: 1;
+  cursor: pointer;
+  transition: color 0.15s;
 }
+#sidebar h3:hover { color: var(--accent); }
 .toc-part {
   display: flex;
   align-items: center;
@@ -218,11 +255,13 @@ body {
   </div>
 </div>
 
+<div id="tab-bar"></div>
+
 <button id="toggle-sidebar" onclick="toggleSidebar()" title="目录">☰</button>
 
 <div id="main">
   <nav id="sidebar">
-    <h3>📑 目录</h3>
+    <h3 id="sidebar-title" onclick="jumpToPart()">📑 目录</h3>
     <div id="toc-list"></div>
   </nav>
   <div id="viewer">
@@ -242,6 +281,9 @@ let currentScale = 1.2;
 let outlineTree = [];
 let searchResults = [];
 let searchIndex = 0;
+let parts = [];       // 16 大部分：[{title, page, topics:[{title,page,children:[...]}]}]
+let frontMatter = []; // 封面/编者语/封底：[{title, page}]
+let currentPartIdx = -1;
 
 // ==================== 初始化 ====================
 async function init() {
@@ -259,8 +301,15 @@ async function init() {
     const outline = await pdfDoc.getOutline();
     outlineTree = outline || [];
 
-    await renderTOC(outlineTree);
-    await displayPage(1);
+    await parseOutline(outlineTree);
+    renderTabs();
+    if (parts.length > 0) {
+      switchPart(0, true);
+    } else if (frontMatter.length > 0) {
+      switchPart(-1, true);
+    } else {
+      await displayPage(1);
+    }
 
   } catch (err) {
     document.getElementById("loading").innerHTML =
@@ -299,6 +348,7 @@ async function displayPage(pageNum) {
   viewer.scrollTop = 0;
   currentPage = pageNum;
   document.getElementById("page-input").value = pageNum;
+  syncPartToPage(pageNum);
   highlightActiveLeaf(pageNum);
 }
 
@@ -316,16 +366,95 @@ function zoomIn() { setScale(Math.min(currentScale + 0.2, 3)); }
 function zoomOut() { setScale(Math.max(currentScale - 0.2, 0.5)); }
 function zoomReset() { setScale(1.2); }
 
-// ==================== 目录渲染（手风琴） ====================
-async function renderTOC(outline) {
-  const container = document.getElementById("toc-list");
-  if (!outline || outline.length === 0) {
-    container.innerHTML = '<div style="padding:16px;color:#aaa;font-size:13px">PDF 无书签目录</div>';
+// ==================== 目录解析：部分 → 专题（专题下含 核心概念/典型例题/易错点） ====================
+async function parseOutline(outline) {
+  const resolved = await resolveOutlinePages(outline);
+  parts = [];
+  frontMatter = [];
+  for (const item of resolved) {
+    if (item.items && item.items.length > 0) {
+      parts.push({
+        title: item.title || "未命名",
+        page: item.page || 1,
+        topics: item.items.map(t => ({
+          title: t.title || "未命名",
+          page: t.page || 1,
+          children: (t.items || []).map(c => ({ title: c.title || "未命名", page: c.page || 1 })),
+        })),
+      });
+    } else {
+      frontMatter.push({ title: item.title || "未命名", page: item.page || 1 });
+    }
+  }
+}
+
+function partShortTitle(t) {
+  return (t || "").replace(/^第[一二三四五六七八九十百]+部分\s*/, "").trim();
+}
+
+// ==================== 顶部标签栏 ====================
+function renderTabs() {
+  const bar = document.getElementById("tab-bar");
+  const tabs = [];
+  if (frontMatter.length > 0) {
+    tabs.push('<button data-idx="-1" onclick="switchPart(-1, true)">📖 卷首</button>');
+  }
+  parts.forEach((p, i) => {
+    tabs.push(`<button data-idx="${i}" onclick="switchPart(${i}, true)">${partShortTitle(p.title)}</button>`);
+  });
+  bar.innerHTML = tabs.join("");
+}
+
+function setActiveTab(idx) {
+  document.querySelectorAll("#tab-bar button").forEach(b => {
+    b.classList.toggle("active", parseInt(b.dataset.idx) === idx);
+  });
+}
+
+// ==================== 切换部分 ====================
+function switchPart(idx, jump) {
+  if (idx === currentPartIdx) {
+    if (jump) jumpToPart();
     return;
   }
+  currentPartIdx = idx;
+  setActiveTab(idx);
+  renderSidebar(idx);
+  if (jump) jumpToPart();
+}
 
-  const resolvedOutline = await resolveOutlinePages(outline);
-  container.innerHTML = buildTocHTML(resolvedOutline, 0);
+function jumpToPart() {
+  if (currentPartIdx >= 0 && parts[currentPartIdx]) {
+    displayPage(parts[currentPartIdx].page);
+  } else if (frontMatter.length > 0) {
+    displayPage(frontMatter[0].page);
+  }
+}
+
+// ==================== 侧边栏渲染（当前部分的专题手风琴） ====================
+function renderSidebar(idx) {
+  const titleEl = document.getElementById("sidebar-title");
+  const container = document.getElementById("toc-list");
+
+  if (idx === -1) {
+    titleEl.textContent = "📖 卷首";
+    container.innerHTML = frontMatter.map(t =>
+      `<div class="toc-leaf" data-page="${t.page}">${t.title}</div>`
+    ).join("");
+  } else {
+    const part = parts[idx];
+    titleEl.textContent = part.title;
+    container.innerHTML = part.topics.map(t =>
+      `<div class="toc-item">
+        <div class="toc-part" data-page="${t.page}">
+          <span class="arrow">▶</span><span>${t.title}</span>
+        </div>
+        <div class="toc-children">
+          ${t.children.map(c => `<div class="toc-leaf" data-page="${c.page}">${c.title}</div>`).join("")}
+        </div>
+      </div>`
+    ).join("");
+  }
 
   container.querySelectorAll(".toc-part").forEach(el => {
     el.addEventListener("click", function(e) {
@@ -334,9 +463,6 @@ async function renderTOC(outline) {
       if (children && children.classList.contains("toc-children")) {
         this.classList.toggle("expanded");
         children.classList.toggle("expanded");
-      } else {
-        const page = parseInt(this.dataset.page);
-        if (page) displayPage(page);
       }
     });
   });
@@ -347,6 +473,39 @@ async function renderTOC(outline) {
       if (page) displayPage(page);
     });
   });
+}
+
+// ==================== 页面切换时同步标签与目录 ====================
+function findPartForPage(pageNum) {
+  let idx = -1, best = -1;
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i].page <= pageNum && parts[i].page > best) {
+      idx = i;
+      best = parts[i].page;
+    }
+  }
+  return idx;
+}
+
+function syncPartToPage(pageNum) {
+  const idx = findPartForPage(pageNum);
+  if (idx >= 0 && idx !== currentPartIdx) {
+    switchPart(idx, false);
+  }
+  if (idx >= 0) {
+    // 自动展开当前页所在的专题
+    const part = parts[idx];
+    let topicPage = part.topics.length > 0 ? part.topics[0].page : part.page;
+    for (const t of part.topics) {
+      if (t.page <= pageNum) topicPage = t.page;
+    }
+    document.querySelectorAll("#toc-list .toc-part").forEach(parent => {
+      const children = parent.nextElementSibling;
+      const isTarget = parseInt(parent.dataset.page) === topicPage;
+      parent.classList.toggle("expanded", isTarget);
+      if (children) children.classList.toggle("expanded", isTarget);
+    });
+  }
 }
 
 async function resolveOutlinePages(items) {
@@ -360,30 +519,6 @@ async function resolveOutlinePages(items) {
     result.push(newItem);
   }
   return result;
-}
-
-function buildTocHTML(items, depth) {
-  let html = "";
-  for (const item of items) {
-    const title = item.title || "未命名";
-    const page = item.page || 1;
-    const hasChildren = item.items && item.items.length > 0;
-
-    if (hasChildren) {
-      html += `
-        <div class="toc-item">
-          <div class="toc-part ${depth === 0 ? "expanded" : ""}" data-page="${page}">
-            <span class="arrow">▶</span><span>${title}</span>
-          </div>
-          <div class="toc-children ${depth === 0 ? "expanded" : ""}">
-            ${buildTocHTML(item.items, depth + 1)}
-          </div>
-        </div>`;
-    } else {
-      html += `<div class="toc-leaf" data-page="${page}">${title}</div>`;
-    }
-  }
-  return html;
 }
 
 async function getDestPage(dest) {
